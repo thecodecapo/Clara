@@ -1,4 +1,8 @@
 # Clara's declarative configuration file
+tls:
+  email: "iam@guna.dev" # Use a real email
+  domains:
+    - "clara.zintlabs.pro"
 
 services:
   - name: my-website
