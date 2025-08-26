@@ -200,7 +200,7 @@ certManager := &autocert.Manager{
     Cache:      autocert.DirCache("certs"),
     Email:      config.TLS.Email,
 }
-}
+
 
         // Create the main HTTPS server.
         httpsServer := &http.Server{
