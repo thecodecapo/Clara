@@ -15,7 +15,6 @@ import (
     "time"
 
     "gopkg.in/yaml.v2"
-	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
 
