@@ -1,0 +1,21 @@
+# Clara's declarative configuration file
+tls:
+  email: "iam@guna.dev" # Use a real email
+  domains:
+    - "clara.test"
+
+services:
+  - name: my-website
+    host: "localhost"
+    port: 3000
+    
+  - name: my-api
+    host: "localhost"
+    port: 4000
+
+routes:
+  - path: "/"
+    service: "my-website"
+    
+  - path: "/api/"
+    service: "my-api"
