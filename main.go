@@ -413,9 +413,9 @@ func main() {
 			}
 		}()
 	} else {
-		log.Println("Clara is ready. Starting HTTP server on :8080")
+		log.Println("Clara is ready. Starting HTTP server on :80")
 		server = &http.Server{
-			Addr:    ":8080",
+			Addr:    ":80",
 			Handler: wrappedHandler,
 		}
 
