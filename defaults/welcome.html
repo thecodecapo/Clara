@@ -2,19 +2,458 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Welcome to Clara</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clara | Declarative Reverse Proxy</title>
     <style>
-        body { background-color: #2a2a2e; color: #f0f0f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; text-align: center; padding: 50px; }
-        h1 { font-size: 3em; color: #00bcd4; font-weight: 300; }
-        p { font-size: 1.2em; }
-        code { background-color: #444; padding: 4px 8px; border-radius: 4px; font-family: monospace; }
-        footer { margin-top: 50px; font-size: 0.9em; color: #888; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+            background: #ffffff;
+            color: #0a0a0a;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 40px;
+        }
+
+        .header {
+            padding: 100px 0 140px;
+            text-align: center;
+        }
+
+        .logo {
+            display: inline-block;
+            border-radius: 20px;
+            overflow: hidden;
+            width: 150px;
+            height: 150px;
+            justify-self: center;
+            background: #0a0a0a;
+            border-radius: 12px;
+            font-weight: 700;
+            color: #fafafa;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            letter-spacing: -0.02em;
+            margin-bottom: 40px;
+            transition: transform 0.2s ease;
+        }
+
+        .logo:hover {
+            transform: scale(1.05);
+        }
+
+        h1 {
+            font-size: 64px;
+            font-weight: 400;
+            color: #0a0a0a;
+            margin-bottom: 28px;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+        }
+
+        .subtitle {
+            font-size: 24px;
+            font-weight: 400;
+            color: #6a6a6a;
+            max-width: 650px;
+            margin: 0 auto 48px;
+            line-height: 1.4;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            background: #f0f8f0;
+            border: 2px solid #e0f0e0;
+            border-radius: 32px;
+            padding: 12px 24px;
+            margin-top: 20px;
+            transition: border-color 0.2s ease;
+        }
+
+        .status:hover {
+            border-color: #c0e0c0;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            background: #00d084;
+            border-radius: 50%;
+            margin-right: 12px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .status-text {
+            color: #00a86b;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .main-section {
+            padding: 80px 0;
+        }
+
+        .section-header {
+            margin-bottom: 80px;
+        }
+
+        .section-title {
+            font-size: 42px;
+            font-weight: 700;
+            color: #0a0a0a;
+            margin-bottom: 20px;
+            letter-spacing: -0.01em;
+            line-height: 1.2;
+        }
+
+        .section-subtitle {
+            font-size: 20px;
+            color: #6a6a6a;
+            line-height: 1.5;
+            max-width: 600px;
+        }
+
+        .features-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2px;
+            background: #e8e8e8;
+            border: 2px solid #e8e8e8;
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .feature {
+            background: #fafafa;
+            padding: 48px 40px;
+            position: relative;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .feature:hover {
+            background: #f4f4f4;
+            transform: translateY(-2px);
+        }
+
+        .feature:nth-child(1) {
+            border-radius: 14px 0 0 0;
+        }
+
+        .feature:nth-child(2) {
+            border-radius: 0 14px 0 0;
+        }
+
+        .feature:nth-child(3) {
+            border-radius: 0 0 0 14px;
+        }
+
+        .feature:nth-child(4) {
+            border-radius: 0 0 14px 0;
+        }
+
+        .feature-symbol {
+            display: inline-block;
+            width: 56px;
+            height: 56px;
+            background: #0a0a0a;
+            color: #fafafa;
+            border-radius: 14px;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            font-weight: 400;
+        }
+
+        .feature-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #0a0a0a;
+            margin-bottom: 16px;
+            letter-spacing: -0.01em;
+            line-height: 1.3;
+        }
+
+        .feature-desc {
+            font-size: 17px;
+            color: #6a6a6a;
+            line-height: 1.5;
+        }
+
+        .config-section {
+            padding: 100px 0;
+        }
+
+        .config-container {
+            background: #f4f4f4;
+            border: 2px solid #e8e8e8;
+            border-radius: 20px;
+            padding: 60px 50px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .config-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #00d084 0%, #0066ff 100%);
+        }
+
+        .config-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #0a0a0a;
+            margin-bottom: 12px;
+            letter-spacing: -0.01em;
+        }
+
+        .config-subtitle {
+            font-size: 18px;
+            color: #6a6a6a;
+            margin-bottom: 40px;
+        }
+
+        .config-path {
+            background: #0a0a0a;
+            color: #00d084;
+            border-radius: 12px;
+            padding: 20px 24px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            margin-bottom: 48px;
+            border: 2px solid #2a2a2a;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 40px;
+        }
+
+        .config-item {
+            text-align: left;
+        }
+
+        .config-item-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: #0a0a0a;
+            margin-bottom: 8px;
+            letter-spacing: -0.01em;
+        }
+
+        .config-item-desc {
+            font-size: 15px;
+            color: #6a6a6a;
+            line-height: 1.5;
+        }
+
+        .footer {
+            padding: 80px 0 60px;
+            text-align: center;
+            border-top: 2px solid #e8e8e8;
+            margin-top: 60px;
+        }
+
+        .footer-text {
+            font-size: 17px;
+            color: #6a6a6a;
+            margin-bottom: 32px;
+        }
+
+        .footer-link {
+            display: inline-block;
+            color: #0066ff;
+            text-decoration: none;
+            font-size: 17px;
+            font-weight: 600;
+            padding: 16px 32px;
+            border: 2px solid #e8e8e8;
+            border-radius: 32px;
+            background: #fafafa;
+            transition: all 0.2s ease;
+        }
+
+        .footer-link:hover {
+            border-color: #0066ff;
+            background: #f4f8ff;
+            transform: translateY(-1px);
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 24px;
+            }
+
+            h1 {
+                font-size: 48px;
+            }
+
+            .subtitle {
+                font-size: 20px;
+            }
+
+            .section-title {
+                font-size: 32px;
+            }
+
+            .features-container {
+                grid-template-columns: 1fr;
+                gap: 2px;
+            }
+
+            .feature:nth-child(1) {
+                border-radius: 14px 14px 0 0;
+            }
+
+            .feature:nth-child(2) {
+                border-radius: 0;
+            }
+
+            .feature:nth-child(3) {
+                border-radius: 0;
+            }
+
+            .feature:nth-child(4) {
+                border-radius: 0 0 14px 14px;
+            }
+
+            .config-container {
+                padding: 40px 32px;
+            }
+
+            .config-grid {
+                grid-template-columns: 1fr;
+                gap: 32px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header {
+                padding: 60px 0 80px;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+
+            .subtitle {
+                font-size: 18px;
+            }
+
+            .feature {
+                padding: 32px 24px;
+            }
+
+            .config-container {
+                padding: 32px 24px;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>Welcome to Clara</h1>
-    <p>Your declarative reverse proxy is up and running.</p>
-    <p>To get started, edit your <code>config.yaml</code> file to define your services and routes.</p>
-    <footer>Served by Clara by CodeCapo</footer>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <img style="width:100%" src="https://ik.imagekit.io/gunadev/Codecapo/clara_logo?updatedAt=1756229053686" alt="Clara Logo" />
+            </div>
+            <h1 style="margin-top:-40px">Clara</h1>
+            <p class="subtitle">Declarative reverse proxy server engineered for simplicity, performance, and reliability</p>
+            <div class="status">
+                <div class="status-indicator"></div>
+                <span class="status-text">System up & running</span>
+            </div>
+        </header>
+
+        <main class="main-section">
+            <div class="section-header">
+                <h2 class="section-title">Engineered Differently</h2>
+                <p class="section-subtitle">Clara solves traditional proxy pain points through modern architectural decisions and thoughtful engineering</p>
+            </div>
+
+            <div class="features-container">
+                <div class="feature">
+                    <div class="feature-symbol">⚙</div>
+                    <h3 class="feature-title">Declarative by Design</h3>
+                    <p class="feature-desc">Express your proxy configuration as desired state in clean YAML, not complex imperative rules</p>
+                </div>
+
+                <div class="feature">
+                    <div class="feature-symbol">↻</div>
+                    <h3 class="feature-title">Live Reconfiguration</h3>
+                    <p class="feature-desc">Configuration changes apply instantly with zero downtime through intelligent hot reloading</p>
+                </div>
+
+                <div class="feature">
+                    <div class="feature-symbol">→</div>
+                    <h3 class="feature-title">Predictable Routing</h3>
+                    <p class="feature-desc">Robust routing logic with exact matching and longest prefix fallback strategies</p>
+                </div>
+
+                <div class="feature">
+                    <div class="feature-symbol">⚡</div>
+                    <h3 class="feature-title">Graceful Operations</h3>
+                    <p class="feature-desc">Built-in graceful shutdown and connection handling for production reliability</p>
+                </div>
+            </div>
+        </main>
+
+        <section class="config-section">
+            <div class="config-container">
+                <h2 class="config-title">Start Proxying</h2>
+                <p class="config-subtitle">Configure services and routes through a single declarative file</p>
+                
+                <div class="config-path">./config.yaml</div>
+                
+                <div class="config-grid">
+                    <div class="config-item">
+                        <div class="config-item-title">Live Updates</div>
+                        <div class="config-item-desc">File changes detected and applied automatically without restart</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-item-title">Schema Validation</div>
+                        <div class="config-item-desc">Built-in validation prevents configuration errors before deployment</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-item-title">Zero Downtime</div>
+                        <div class="config-item-desc">Configuration updates maintain active connections seamlessly</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <p class="footer-text">Built with Go for maximum performance and minimal resource usage</p>
+            <a href="https://github.com/thecodecapo" class="footer-link">By CodeCapo</a>
+        </footer>
+    </div>
 </body>
 </html>
