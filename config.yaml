@@ -14,8 +14,3 @@ services:
     port: 4000
 
 routes:
-  - path: "/"
-    service: "my-website"
-    
-  - path: "/api/"
-    service: "my-api"
