@@ -10,18 +10,41 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"net/http/pprof"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/crypto/acme/autocert"
 	"gopkg.in/yaml.v2"
 )
 
 //go:embed defaults
 var defaultPages embed.FS
+
+// --- Global Application State ---
+var app = &App{}
+
+// --- Metrics Definitions ---
+var (
+	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "clara_http_requests_total",
+		Help: "Total number of HTTP requests.",
+	}, []string{"service", "path", "code"})
+
+	httpRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "clara_http_request_duration_seconds",
+		Help:    "Duration of HTTP requests.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"service", "path"})
+)
 
 // Service defines a backend service, supporting either a single host or multiple servers for load balancing.
 type Service struct {
@@ -86,6 +109,50 @@ type routeHandler struct {
 	handler http.Handler
 }
 
+// Custom responseWriter to get the status code
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// NewResponseWriter creates a new responseWriter.
+func NewResponseWriter(w http.ResponseWriter) *responseWriter {
+	return &responseWriter{w, http.StatusOK}
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// metricsMiddleware wraps an http.Handler to record Prometheus metrics.
+func metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		res := NewResponseWriter(w)
+		var router *Router
+		if rtr, ok := app.router.Load().(*Router); ok {
+			router = rtr
+		}
+
+		routePath := "unmatched"
+		serviceName := "unmatched"
+		if router != nil {
+			match := router.findBestMatch(r.URL.Path)
+			if match != nil {
+				routePath = match.path
+				serviceName = match.service
+			}
+		}
+
+		startTime := time.Now()
+		next.ServeHTTP(res, r)
+		duration := time.Since(startTime)
+
+		httpRequestDuration.WithLabelValues(serviceName, routePath).Observe(duration.Seconds())
+		httpRequestsTotal.WithLabelValues(serviceName, routePath, strconv.Itoa(res.statusCode)).Inc()
+	})
+}
+
 // serveErrorPage handles serving custom or embedded error pages.
 func (r *Router) serveErrorPage(w http.ResponseWriter, req *http.Request, statusCode int) {
 	if pagePath, exists := r.errorPages[statusCode]; exists {
@@ -111,19 +178,8 @@ func (r *Router) serveErrorPage(w http.ResponseWriter, req *http.Request, status
 	http.Error(w, http.StatusText(statusCode), statusCode)
 }
 
-// ServeHTTP implements the http.Handler interface with custom routing logic.
-func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if len(r.routes) == 0 && req.URL.Path == "/" {
-		htmlBytes, err := defaultPages.ReadFile("defaults/welcome.html")
-		if err == nil {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			w.Write(htmlBytes)
-			return
-		}
-	}
-
-	requestPath := req.URL.Path
+// findBestMatch extracts the route matching logic.
+func (r *Router) findBestMatch(requestPath string) *routeHandler {
 	var bestMatch *routeHandler
 	bestMatchLen := -1
 
@@ -142,14 +198,30 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
+	return bestMatch
+}
+
+// ServeHTTP implements the http.Handler interface with custom routing logic.
+func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if len(r.routes) == 0 && req.URL.Path == "/" {
+		htmlBytes, err := defaultPages.ReadFile("defaults/welcome.html")
+		if err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			w.Write(htmlBytes)
+			return
+		}
+	}
+
+	bestMatch := r.findBestMatch(req.URL.Path)
 
 	if bestMatch != nil {
-		log.Printf("Clara received request for '%s', proxying to service '%s' (match: '%s')", requestPath, bestMatch.service, bestMatch.path)
+		log.Printf("Clara received request for '%s', proxying to service '%s' (match: '%s')", req.URL.Path, bestMatch.service, bestMatch.path)
 		bestMatch.handler.ServeHTTP(w, req)
 		return
 	}
 
-	log.Printf("Clara received request for '%s' - no matching route found, returning 404", requestPath)
+	log.Printf("Clara received request for '%s' - no matching route found, returning 404", req.URL.Path)
 	r.serveErrorPage(w, req, http.StatusNotFound)
 }
 
@@ -183,7 +255,6 @@ func (a *App) newRouter(config *Config) *Router {
 					continue
 				}
 				proxy := httputil.NewSingleHostReverseProxy(target)
-				// The director for path stripping should be applied to each proxy in the LB
 				originalDirector := proxy.Director
 				proxy.Director = func(req *http.Request) {
 					originalDirector(req)
@@ -196,7 +267,7 @@ func (a *App) newRouter(config *Config) *Router {
 				handler = lb
 				log.Printf("Initialized round-robin load balancer for service '%s' with %d servers.", svc.Name, len(lb.backends))
 			}
-		} else { // This service uses a single backend
+		} else if svc.Host != "" { // This service uses a single backend
 			targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", svc.Host, svc.Port))
 			if err != nil {
 				log.Printf("Warning: Failed to parse target URL for service '%s': %v", svc.Name, err)
@@ -225,7 +296,6 @@ func (a *App) newRouter(config *Config) *Router {
 }
 
 func main() {
-	app := &App{}
 	var config Config
 
 	loadAndServeConfig := func() error {
@@ -244,7 +314,7 @@ func main() {
 		log.Fatalf("Initial config load failed: %v", err)
 	}
 
-	go func() {
+	go func() { // Hot reloading goroutine
 		lastModTime, _ := os.Stat("config.yaml")
 		for {
 			time.Sleep(3 * time.Second)
@@ -265,6 +335,16 @@ func main() {
 		}
 	}()
 
+	go func() { // Metrics server goroutine
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", promhttp.Handler())
+		metricsMux.HandleFunc("/debug/pprof/", pprof.Index)
+		log.Println("Starting metrics server on :9091")
+		if err := http.ListenAndServe(":9091", metricsMux); err != nil {
+			log.Fatalf("Metrics server failed: %v", err)
+		}
+	}()
+
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		if router, ok := app.router.Load().(*Router); ok {
 			router.ServeHTTP(w, r)
@@ -272,6 +352,8 @@ func main() {
 			http.Error(w, "Service unavailable", http.StatusInternalServerError)
 		}
 	}
+
+	wrappedHandler := metricsMiddleware(http.HandlerFunc(mainHandler))
 
 	var server *http.Server
 	stop := make(chan os.Signal, 1)
@@ -289,7 +371,7 @@ func main() {
 
 		server = &http.Server{
 			Addr:      ":443",
-			Handler:   http.HandlerFunc(mainHandler),
+			Handler:   wrappedHandler,
 			TLSConfig: certManager.TLSConfig(),
 		}
 
@@ -307,10 +389,10 @@ func main() {
 			}
 		}()
 	} else {
-		log.Println("Clara is ready. Starting HTTP server on :8.080")
+		log.Println("Clara is ready. Starting HTTP server on :8080")
 		server = &http.Server{
 			Addr:    ":8080",
-			Handler: http.HandlerFunc(mainHandler),
+			Handler: wrappedHandler,
 		}
 
 		go func() {
