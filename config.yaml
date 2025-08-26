@@ -2,7 +2,7 @@
 tls:
   email: "iam@guna.dev" # Use a real email
   domains:
-    - "https://clara.zintlabs.pro"
+    - "clara.zintlabs.pro"
 
 services:
   - name: my-website
