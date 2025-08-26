@@ -31,6 +31,7 @@ var defaultPages embed.FS
 
 // --- Global Application State ---
 var app = &App{}
+var config Config
 
 // --- Metrics Definitions ---
 var (
@@ -295,20 +296,43 @@ func (a *App) newRouter(config *Config) *Router {
 	return router
 }
 
-func main() {
-	var config Config
-
-	loadAndServeConfig := func() error {
-		data, err := os.ReadFile("config.yaml")
-		if err != nil {
-			return fmt.Errorf("error reading config file: %w", err)
-		}
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("error parsing config file: %w", err)
-		}
-		app.router.Store(app.newRouter(&config))
-		return nil
+func loadAndServeConfig() error {
+	configPaths := []string{
+		"./config.yaml",
+		os.Getenv("HOME") + "/.config/clara/config.yaml",
+		"/etc/clara/config.yaml",
 	}
+
+	var data []byte
+	var err error
+	foundPath := ""
+
+	for _, path := range configPaths {
+		data, err = os.ReadFile(path)
+		if err == nil {
+			foundPath = path
+			break
+		}
+	}
+
+	if foundPath == "" {
+		log.Println("No user-provided config found. Loading built-in default configuration.")
+		data, err = defaultPages.ReadFile("defaults/config.default.yaml")
+		if err != nil {
+			return fmt.Errorf("failed to load embedded default config: %w", err)
+		}
+	} else {
+		log.Printf("Loading configuration from: %s", foundPath)
+	}
+
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("error parsing config: %w", err)
+	}
+	app.router.Store(app.newRouter(&config))
+	return nil
+}
+
+func main() {
 
 	if err := loadAndServeConfig(); err != nil {
 		log.Fatalf("Initial config load failed: %v", err)

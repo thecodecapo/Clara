@@ -1,24 +1,10 @@
-# Clara's declarative configuration file
-tls:
-  email: "iam@guna.dev"
-  domains:
-    - "clara.zintlabs.pro"
+# This is the default, built-in configuration for Clara.
+# It is used when no user-provided 'config.yaml' is found.
+#
+# To customize Clara, create your own 'config.yaml' and place it in:
+# - The same directory as the 'clara' binary
+# - ~/.config/clara/config.yaml
+# - /etc/clara/config.yaml
 
-services:
-  - name: "my-api"
-    load_balancing_strategy: "round-robin"
-    servers:
-      - "http://localhost:4001"
-      - "http://localhost:4002"
-      - "http://localhost:4003"
-      
-  - name: "my-website"
-    host: "localhost"
-    port: 3000
-
-routes:
-  - path: "/api/"
-    service: "my-api"
-    
-  - path: "/"
-    service: "my-website"
+services: []
+routes: []

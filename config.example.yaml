@@ -1,0 +1,45 @@
+#
+# Example Configuration for Clara
+#
+# To use, rename this file to 'config.yaml' and place it in one of the search paths:
+# 1. The same directory as the 'clara' binary.
+# 2. ~/.config/clara/config.yaml
+# 3. /etc/clara/config.yaml
+#
+
+# --- TLS Configuration (Optional) ---
+# Enable automatic HTTPS with Let's Encrypt by uncommenting this section.
+# This requires a public server and a domain pointed to its IP address.
+# tls:
+#   email: "your-email@example.com"
+#   domains:
+#     - "your.domain.com"
+
+# --- Services ---
+# Define your backend services. A service can be a single host or multiple servers for load balancing.
+services:
+  - name: "my-api-service"
+    load_balancing_strategy: "round-robin"
+    servers:
+      - "http://localhost:4001"
+      - "http://localhost:4002"
+      
+  - name: "my-website"
+    host: "localhost"
+    port: 3000
+
+# --- Routes ---
+# Define the routes that map incoming paths to your services.
+routes:
+  - path: "/api/"
+    service: "my-api-service"
+    
+  - path: "/"
+    service: "my-website"
+
+# --- Error Pages (Optional) ---
+# Define custom HTML pages for specific HTTP error codes.
+# This overrides the built-in default pages.
+# error_pages:
+#   404: "./pages/404.html"
+#   503: "./pages/503.html"
