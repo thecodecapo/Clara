@@ -1,21 +1,26 @@
 package main
 
 import (
-    "fmt"
-    "log"
-    "net/http"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
 )
 
 func main() {
-    // This handler will respond with "Hello from the backend!"
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        log.Println("Received request on backend server.")
-        fmt.Fprint(w, "Hello from the backend!")
-    })
+	// Get the port from the command-line argument, default to 3000
+	port := "3000"
+	if len(os.Args) > 1 {
+		port = os.Args[1]
+	}
 
-    // Start the backend on port 3000, as defined in your config.yaml
-    log.Println("Starting backend server on :3000")
-    if err := http.ListenAndServe(":3000", nil); err != nil {
-        log.Fatalf("Failed to start backend: %v", err)
-    }
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received request on backend server running on port %s", port)
+		fmt.Fprintf(w, "Hello from the backend on port %s!", port)
+	})
+
+	log.Printf("Starting dummy backend server on :%s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
 }

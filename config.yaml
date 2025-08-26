@@ -1,15 +1,24 @@
 # Clara's declarative configuration file
 tls:
-  email: "iam@guna.dev" # Use a real email
+  email: "iam@guna.dev"
   domains:
     - "clara.zintlabs.pro"
 
 services:
-  - name: my-website
+  - name: "my-api"
+    load_balancing_strategy: "round-robin"
+    servers:
+      - "http://localhost:4001"
+      - "http://localhost:4002"
+      - "http://localhost:4003"
+      
+  - name: "my-website"
     host: "localhost"
     port: 3000
-    
-  - name: my-api
-    host: "localhost"
-    port: 4000
 
+routes:
+  - path: "/api/"
+    service: "my-api"
+    
+  - path: "/"
+    service: "my-website"

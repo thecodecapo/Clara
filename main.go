@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,11 +23,29 @@ import (
 //go:embed defaults
 var defaultPages embed.FS
 
-// Service defines a backend service.
+// Service defines a backend service, supporting either a single host or multiple servers for load balancing.
 type Service struct {
-	Name string `yaml:"name"`
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Name                  string   `yaml:"name"`
+	Host                  string   `yaml:"host,omitempty"`
+	Port                  int      `yaml:"port,omitempty"`
+	LoadBalancingStrategy string   `yaml:"load_balancing_strategy,omitempty"`
+	Servers               []string `yaml:"servers,omitempty"`
+}
+
+// LoadBalancer holds the logic for a round-robin setup.
+type LoadBalancer struct {
+	backends []*httputil.ReverseProxy
+	mu       sync.Mutex
+	next     int
+}
+
+// ServeHTTP for LoadBalancer makes it a valid http.Handler, distributing requests to backends.
+func (lb *LoadBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	lb.mu.Lock()
+	backend := lb.backends[lb.next%len(lb.backends)]
+	lb.next++
+	lb.mu.Unlock()
+	backend.ServeHTTP(w, r)
 }
 
 // Route defines how to handle incoming requests.
@@ -43,7 +62,7 @@ type TLS struct {
 
 // Config represents the structure of your config.yaml file.
 type Config struct {
-	ErrorPages map[int]string `yaml:"error_pages"` 
+	ErrorPages map[int]string `yaml:"error_pages"`
 	TLS        *TLS           `yaml:"tls"`
 	Services   []Service      `yaml:"services"`
 	Routes     []Route        `yaml:"routes"`
@@ -60,44 +79,51 @@ type Router struct {
 	errorPages map[int]string
 }
 
+// routeHandler holds a path and its corresponding handler, which can be a single proxy or a load balancer.
 type routeHandler struct {
 	path    string
 	service string
-	proxy   *httputil.ReverseProxy
+	handler http.Handler
 }
 
 // serveErrorPage handles serving custom or embedded error pages.
 func (r *Router) serveErrorPage(w http.ResponseWriter, req *http.Request, statusCode int) {
-	// First, check for a user-defined custom error page
 	if pagePath, exists := r.errorPages[statusCode]; exists {
 		htmlBytes, err := os.ReadFile(pagePath)
 		if err == nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(statusCode)
 			w.Write(htmlBytes)
-			return 
+			return
 		}
 		log.Printf("Warning: Failed to read custom error page '%s': %v", pagePath, err)
 	}
 
-	// If no custom page, fall back to our embedded default page
 	defaultPagePath := fmt.Sprintf("defaults/%d.html", statusCode)
 	htmlBytes, err := defaultPages.ReadFile(defaultPagePath)
 	if err == nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(statusCode)
 		w.Write(htmlBytes)
-		return 
+		return
 	}
 
-	// As a final resort, fall back to the plain text error
 	http.Error(w, http.StatusText(statusCode), statusCode)
 }
 
 // ServeHTTP implements the http.Handler interface with custom routing logic.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	requestPath := req.URL.Path
+	if len(r.routes) == 0 && req.URL.Path == "/" {
+		htmlBytes, err := defaultPages.ReadFile("defaults/welcome.html")
+		if err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			w.Write(htmlBytes)
+			return
+		}
+	}
 
+	requestPath := req.URL.Path
 	var bestMatch *routeHandler
 	bestMatchLen := -1
 
@@ -117,24 +143,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if len(r.routes) == 0 && req.URL.Path == "/" {
-		htmlBytes, err := defaultPages.ReadFile("defaults/welcome.html")
-		if err == nil {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			w.Write(htmlBytes)
-			return
-		}
-	}
-
 	if bestMatch != nil {
 		log.Printf("Clara received request for '%s', proxying to service '%s' (match: '%s')", requestPath, bestMatch.service, bestMatch.path)
-		bestMatch.proxy.ServeHTTP(w, req)
+		bestMatch.handler.ServeHTTP(w, req)
 		return
 	}
 
 	log.Printf("Clara received request for '%s' - no matching route found, returning 404", requestPath)
-	r.serveErrorPage(w, req, http.StatusNotFound) // 👈 NOTE: Using the new error handler
+	r.serveErrorPage(w, req, http.StatusNotFound)
 }
 
 // newRouter creates a new router instance from the configuration.
@@ -156,26 +172,53 @@ func (a *App) newRouter(config *Config) *Router {
 			continue
 		}
 
-		targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", svc.Host, svc.Port))
-		if err != nil {
-			log.Printf("Warning: Failed to parse target URL for service '%s': %v", svc.Name, err)
-			continue
+		var handler http.Handler
+
+		if len(svc.Servers) > 0 { // This service uses a load balancer
+			lb := &LoadBalancer{}
+			for _, serverURL := range svc.Servers {
+				target, err := url.Parse(serverURL)
+				if err != nil {
+					log.Printf("Warning: Failed to parse target URL '%s' for service '%s': %v", serverURL, svc.Name, err)
+					continue
+				}
+				proxy := httputil.NewSingleHostReverseProxy(target)
+				// The director for path stripping should be applied to each proxy in the LB
+				originalDirector := proxy.Director
+				proxy.Director = func(req *http.Request) {
+					originalDirector(req)
+					req.URL.Path = strings.TrimPrefix(req.URL.Path, route.Path)
+					req.RequestURI = ""
+				}
+				lb.backends = append(lb.backends, proxy)
+			}
+			if len(lb.backends) > 0 {
+				handler = lb
+				log.Printf("Initialized round-robin load balancer for service '%s' with %d servers.", svc.Name, len(lb.backends))
+			}
+		} else { // This service uses a single backend
+			targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", svc.Host, svc.Port))
+			if err != nil {
+				log.Printf("Warning: Failed to parse target URL for service '%s': %v", svc.Name, err)
+				continue
+			}
+			proxy := httputil.NewSingleHostReverseProxy(targetURL)
+			originalDirector := proxy.Director
+			proxy.Director = func(req *http.Request) {
+				originalDirector(req)
+				req.URL.Path = strings.TrimPrefix(req.URL.Path, route.Path)
+				req.RequestURI = ""
+			}
+			handler = proxy
 		}
 
-		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-		originalDirector := proxy.Director
-
-		proxy.Director = func(req *http.Request) {
-			originalDirector(req)
-			req.URL.Path = strings.TrimPrefix(req.URL.Path, route.Path)
-			req.RequestURI = ""
+		if handler != nil {
+			router.routes = append(router.routes, routeHandler{
+				path:    route.Path,
+				service: route.Service,
+				handler: handler,
+			})
 		}
-
-		router.routes = append(router.routes, routeHandler{
-			path:    route.Path,
-			service: route.Service,
-			proxy:   proxy,
-		})
 	}
 
 	return router
@@ -264,7 +307,7 @@ func main() {
 			}
 		}()
 	} else {
-		log.Println("Clara is ready. Starting HTTP server on :8080")
+		log.Println("Clara is ready. Starting HTTP server on :8.080")
 		server = &http.Server{
 			Addr:    ":8080",
 			Handler: http.HandlerFunc(mainHandler),
