@@ -1,0 +1,13 @@
+# Compiled Go binaries
+Clara
+*.exe
+
+# Dependency directories
+vendor/
+
+# Local certificate cache
+certs/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
