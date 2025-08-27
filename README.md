@@ -58,7 +58,18 @@ Clara is distributed as a single, standalone binary. No dependencies are needed.
 
     If no `config.yaml` is found, Clara will start and serve a default welcome page.
 
+
+
 * * * * *
+
+### Easiest Install (Linux & macOS)
+
+Run this command in your terminal to automatically download and install the latest version of Clara.
+
+```bash
+curl -sSL [https://github.com/thecodecapo/Clara/raw/main/install.sh](https://github.com/thecodecapo/Clara/raw/main/install.sh) | sudo sh
+
+```
 
 ## ⚙️ Configuration
 
