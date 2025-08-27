@@ -13,3 +13,7 @@ certs/
 Thumbs.db
 
 _testing/
+
+clara-darwin-amd64
+clara-linux-amd64
+clara-windows-amd64.exe

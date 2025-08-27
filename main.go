@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -333,6 +334,16 @@ func loadAndServeConfig() error {
 }
 
 func main() {
+
+	install := flag.Bool("install", false, "Install Clara as a systemd service")
+	flag.Parse()
+
+	if *install {
+		if err := installService(); err != nil {
+			log.Fatalf("Service installation failed: %v", err)
+		}
+		return // Exit after installation
+	}
 
 	if err := loadAndServeConfig(); err != nil {
 		log.Fatalf("Initial config load failed: %v", err)
