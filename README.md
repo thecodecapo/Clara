@@ -71,6 +71,8 @@ curl -sSL [https://github.com/thecodecapo/Clara/raw/main/install.sh](https://git
 
 ```
 
+
+
 ## ⚙️ Configuration
 
 
@@ -118,6 +120,37 @@ error_pages:
 ```
 
 * * * * *
+
+## 🏃 Running Clara as a Service (Linux)
+
+For production deployments on Linux, it's best to run Clara as a systemd service. This allows it to start on boot and restart automatically if it crashes.
+
+- Install the Binary: First, install Clara using the one-line install script.
+
+
+```
+curl -sSL https://raw.githubusercontent.com/thecodecapo/Clara/main/install.sh | sudo sh
+
+```
+- Install the Service: Use the built-in -install command to create the service file.
+
+```
+sudo clara -install
+```
+
+- Enable and Start the Service: Follow the on-screen instructions to get the service running.
+
+```
+sudo systemctl daemon-reload
+sudo systemctl enable clara
+sudo systemctl start clara
+```
+
+- Check the Status: You can check that the service is running at any time.
+
+```
+sudo systemctl status clara
+```
 
 ## 📈 Observability
 
