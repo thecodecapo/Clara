@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -31,8 +32,17 @@ import (
 var defaultPages embed.FS
 
 // --- Global Application State ---
-var app = &App{}
-var config Config
+var (
+	app    = &App{}
+	config Config
+)
+
+// --- Optimizations ---
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 32*1024) // 32KB buffer
+	},
+}
 
 // --- Metrics Definitions ---
 var (
@@ -48,7 +58,7 @@ var (
 	}, []string{"service", "path"})
 )
 
-// Service defines a backend service, supporting either a single host or multiple servers for load balancing.
+// Service defines a backend service.
 type Service struct {
 	Name                  string   `yaml:"name"`
 	Host                  string   `yaml:"host,omitempty"`
@@ -64,7 +74,6 @@ type LoadBalancer struct {
 	next     int
 }
 
-// ServeHTTP for LoadBalancer makes it a valid http.Handler, distributing requests to backends.
 func (lb *LoadBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lb.mu.Lock()
 	backend := lb.backends[lb.next%len(lb.backends)]
@@ -104,7 +113,6 @@ type Router struct {
 	errorPages map[int]string
 }
 
-// routeHandler holds a path and its corresponding handler, which can be a single proxy or a load balancer.
 type routeHandler struct {
 	path    string
 	service string
@@ -117,7 +125,6 @@ type responseWriter struct {
 	statusCode int
 }
 
-// NewResponseWriter creates a new responseWriter.
 func NewResponseWriter(w http.ResponseWriter) *responseWriter {
 	return &responseWriter{w, http.StatusOK}
 }
@@ -155,7 +162,6 @@ func metricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// serveErrorPage handles serving custom or embedded error pages.
 func (r *Router) serveErrorPage(w http.ResponseWriter, req *http.Request, statusCode int) {
 	if pagePath, exists := r.errorPages[statusCode]; exists {
 		htmlBytes, err := os.ReadFile(pagePath)
@@ -180,7 +186,6 @@ func (r *Router) serveErrorPage(w http.ResponseWriter, req *http.Request, status
 	http.Error(w, http.StatusText(statusCode), statusCode)
 }
 
-// findBestMatch extracts the route matching logic.
 func (r *Router) findBestMatch(requestPath string) *routeHandler {
 	var bestMatch *routeHandler
 	bestMatchLen := -1
@@ -203,7 +208,6 @@ func (r *Router) findBestMatch(requestPath string) *routeHandler {
 	return bestMatch
 }
 
-// ServeHTTP implements the http.Handler interface with custom routing logic.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if len(r.routes) == 0 && req.URL.Path == "/" {
 		htmlBytes, err := defaultPages.ReadFile("defaults/welcome.html")
@@ -227,13 +231,24 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.serveErrorPage(w, req, http.StatusNotFound)
 }
 
-// newRouter creates a new router instance from the configuration.
 func (a *App) newRouter(config *Config) *Router {
 	router := &Router{
 		routes:     make([]routeHandler, 0),
 		errorPages: config.ErrorPages,
 	}
 	serviceMap := make(map[string]Service)
+
+	// Create a single, shared transport for all backend connections.
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
 
 	for _, svc := range config.Services {
 		serviceMap[svc.Name] = svc
@@ -257,6 +272,8 @@ func (a *App) newRouter(config *Config) *Router {
 					continue
 				}
 				proxy := httputil.NewSingleHostReverseProxy(target)
+				proxy.Transport = transport
+				proxy.BufferPool = &bufferPool
 				originalDirector := proxy.Director
 				proxy.Director = func(req *http.Request) {
 					originalDirector(req)
@@ -276,6 +293,8 @@ func (a *App) newRouter(config *Config) *Router {
 				continue
 			}
 			proxy := httputil.NewSingleHostReverseProxy(targetURL)
+			proxy.Transport = transport
+			proxy.BufferPool = &bufferPool
 			originalDirector := proxy.Director
 			proxy.Director = func(req *http.Request) {
 				originalDirector(req)
@@ -334,7 +353,6 @@ func loadAndServeConfig() error {
 }
 
 func main() {
-
 	install := flag.Bool("install", false, "Install Clara as a systemd service")
 	flag.Parse()
 
@@ -342,24 +360,39 @@ func main() {
 		if err := installService(); err != nil {
 			log.Fatalf("Service installation failed: %v", err)
 		}
-		return // Exit after installation
+		return
 	}
 
 	if err := loadAndServeConfig(); err != nil {
 		log.Fatalf("Initial config load failed: %v", err)
 	}
 
-	go func() { // Hot reloading goroutine
-		lastModTime, _ := os.Stat("config.yaml")
+	go func() {
+		var lastModTime time.Time
+		configPath := ""
+
+		searchPaths := []string{"./config.yaml", os.Getenv("HOME") + "/.config/clara/config.yaml", "/etc/clara/config.yaml"}
+		for _, path := range searchPaths {
+			if stat, err := os.Stat(path); err == nil {
+				configPath = path
+				lastModTime = stat.ModTime()
+				break
+			}
+		}
+
+		if configPath == "" {
+			return
+		}
+
 		for {
 			time.Sleep(3 * time.Second)
-			stat, err := os.Stat("config.yaml")
+			stat, err := os.Stat(configPath)
 			if err != nil {
-				log.Printf("Error stating config file: %v", err)
+				log.Printf("Error stating config file '%s': %v", configPath, err)
 				continue
 			}
-			if stat.ModTime() != lastModTime.ModTime() {
-				log.Println("Change detected in config.yaml, reloading...")
+			if stat.ModTime() != lastModTime {
+				log.Printf("Change detected in %s, reloading...", configPath)
 				if err := loadAndServeConfig(); err != nil {
 					log.Printf("Config reload failed: %v", err)
 				} else {
@@ -370,7 +403,7 @@ func main() {
 		}
 	}()
 
-	go func() { // Metrics server goroutine
+	go func() {
 		metricsMux := http.NewServeMux()
 		metricsMux.Handle("/metrics", promhttp.Handler())
 		metricsMux.HandleFunc("/debug/pprof/", pprof.Index)
