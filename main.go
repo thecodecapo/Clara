@@ -37,12 +37,28 @@ var (
 	config Config
 )
 
+// --- Buffer Pool Adapter ---
+// This adapter makes our sync.Pool compatible with httputil.BufferPool
+type poolAdapter struct {
+	pool *sync.Pool
+}
+
+func (p *poolAdapter) Get() []byte {
+	// Type assertion is safe here because our pool's New function always returns []byte.
+	return p.pool.Get().([]byte)
+}
+
+func (p *poolAdapter) Put(b []byte) {
+	p.pool.Put(b)
+}
+
 // --- Optimizations ---
-var bufferPool = sync.Pool{
+var bufferPool = &sync.Pool{
 	New: func() interface{} {
 		return make([]byte, 32*1024) // 32KB buffer
 	},
 }
+var proxyBufferPool = &poolAdapter{pool: bufferPool}
 
 // --- Metrics Definitions ---
 var (
@@ -238,7 +254,6 @@ func (a *App) newRouter(config *Config) *Router {
 	}
 	serviceMap := make(map[string]Service)
 
-	// Create a single, shared transport for all backend connections.
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
@@ -263,7 +278,7 @@ func (a *App) newRouter(config *Config) *Router {
 
 		var handler http.Handler
 
-		if len(svc.Servers) > 0 { // This service uses a load balancer
+		if len(svc.Servers) > 0 {
 			lb := &LoadBalancer{}
 			for _, serverURL := range svc.Servers {
 				target, err := url.Parse(serverURL)
@@ -273,7 +288,7 @@ func (a *App) newRouter(config *Config) *Router {
 				}
 				proxy := httputil.NewSingleHostReverseProxy(target)
 				proxy.Transport = transport
-				proxy.BufferPool = &bufferPool
+				proxy.BufferPool = proxyBufferPool
 				originalDirector := proxy.Director
 				proxy.Director = func(req *http.Request) {
 					originalDirector(req)
@@ -286,7 +301,7 @@ func (a *App) newRouter(config *Config) *Router {
 				handler = lb
 				log.Printf("Initialized round-robin load balancer for service '%s' with %d servers.", svc.Name, len(lb.backends))
 			}
-		} else if svc.Host != "" { // This service uses a single backend
+		} else if svc.Host != "" {
 			targetURL, err := url.Parse(fmt.Sprintf("http://%s:%d", svc.Host, svc.Port))
 			if err != nil {
 				log.Printf("Warning: Failed to parse target URL for service '%s': %v", svc.Name, err)
@@ -294,7 +309,7 @@ func (a *App) newRouter(config *Config) *Router {
 			}
 			proxy := httputil.NewSingleHostReverseProxy(targetURL)
 			proxy.Transport = transport
-			proxy.BufferPool = &bufferPool
+			proxy.BufferPool = proxyBufferPool
 			originalDirector := proxy.Director
 			proxy.Director = func(req *http.Request) {
 				originalDirector(req)
@@ -398,7 +413,7 @@ func main() {
 				} else {
 					log.Println("Clara has reloaded the configuration successfully.")
 				}
-				lastModTime = stat
+				lastModTime = stat.ModTime()
 			}
 		}
 	}()
