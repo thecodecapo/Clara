@@ -30,44 +30,17 @@ Just declare the state you want, and Clara handles the rest.
 
 ## 🚀 Installation
 
+###  Note : Run Clara as a system service for production use, see below section ( Running Clara as a Service )
+
 
 Clara is distributed as a single, standalone binary. No dependencies are needed.
-
-1.  **Download the latest release** for your operating system from the [GitHub Releases page] https://github.com/thecodecapo/Clara/releases&authuser=6).
-
-2.  **Place the binary** somewhere in your system's `PATH`, or in your working directory. For Linux/macOS, make it executable:
-
-    Bash
-
-    ```
-    chmod +x ./clara-linux-amd64
-
-    ```
-
-3.  **Create a `config.yaml` file.** (See the configuration section below).
-
-4.  **Run Clara.** It will automatically find and use your `config.yaml`.
-
-    Bash
-
-    ```
-    # You need sudo to bind to the privileged ports 80 and 443 for HTTPS.
-    sudo ./clara-linux-amd64
-
-    ```
-
-    If no `config.yaml` is found, Clara will start and serve a default welcome page.
-
-
-
-* * * * *
 
 ### Easiest Install (Linux & macOS)
 
 Run this command in your terminal to automatically download and install the latest version of Clara.
 
 ```bash
-curl -sSL [https://github.com/thecodecapo/Clara/raw/main/install.sh](https://github.com/thecodecapo/Clara/raw/main/install.sh) | sudo sh
+curl -sSL https://github.com/thecodecapo/Clara/raw/main/install.sh | sudo sh
 
 ```
 
