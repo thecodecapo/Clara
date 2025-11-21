@@ -212,7 +212,7 @@ func (r *Router) findBestMatch(requestPath string) *routeHandler {
 			bestMatch = route
 			break
 		}
-		if route.path != "/" && strings.HasSuffix(route.path, "/") {
+		if strings.HasSuffix(route.path, "/") {
 			if strings.HasPrefix(requestPath, route.path) {
 				if len(route.path) > bestMatchLen {
 					bestMatch = route
