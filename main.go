@@ -292,7 +292,17 @@ func (a *App) newRouter(config *Config) *Router {
 				originalDirector := proxy.Director
 				proxy.Director = func(req *http.Request) {
 					originalDirector(req)
-					req.URL.Path = strings.TrimPrefix(req.URL.Path, route.Path)
+
+					// 1. Strip the route path (e.g., remove "/api/")
+					targetPath := strings.TrimPrefix(req.URL.Path, route.Path)
+
+					// 2. Ensure the new path starts with a "/"
+					// (Fixes the issue where stripping "/" from "/login" left "login")
+					if !strings.HasPrefix(targetPath, "/") {
+						targetPath = "/" + targetPath
+					}
+
+					req.URL.Path = targetPath
 					req.RequestURI = ""
 				}
 				lb.backends = append(lb.backends, proxy)
@@ -313,7 +323,17 @@ func (a *App) newRouter(config *Config) *Router {
 			originalDirector := proxy.Director
 			proxy.Director = func(req *http.Request) {
 				originalDirector(req)
-				req.URL.Path = strings.TrimPrefix(req.URL.Path, route.Path)
+
+				// 1. Strip the route path (e.g., remove "/api/")
+				targetPath := strings.TrimPrefix(req.URL.Path, route.Path)
+
+				// 2. Ensure the new path starts with a "/"
+				// (Fixes the issue where stripping "/" from "/login" left "login")
+				if !strings.HasPrefix(targetPath, "/") {
+					targetPath = "/" + targetPath
+				}
+
+				req.URL.Path = targetPath
 				req.RequestURI = ""
 			}
 			handler = proxy
